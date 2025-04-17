@@ -51,7 +51,7 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 settings = Settings()
-print("🔑 ASAAS_API_KEY:", settings.ASAAS_API_KEY)
+print("🔑 ASAAS_API_KEY carregada com sucesso.")
 client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
 # ================= MODELOS PYDANTIC =================
@@ -110,10 +110,9 @@ def asaas_headers():
     return {
         "accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "FastAPIFlexgeZaia",
-        "access_token": settings.ASAAS_API_KEY
+        "User-Agent": "FastAPIFlexgeZaia",  # obrigatório desde 13/06/2024
+        "access-token": settings.ASAAS_API_KEY  # 🔑 chave real sem Bearer!
     }
-
 
 def get_or_create_customer(student: dict):
     email = student["email"].lower().strip()
