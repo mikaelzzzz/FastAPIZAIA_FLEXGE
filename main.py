@@ -548,72 +548,44 @@ async def zaia_reenviar_boleto(payload: EmailRequest):
 
 @app.post("/trocar-assinatura-cartao")
 async def trocar_assinatura_cartao(request_data: EmailRequest):
-    try:
-        aluno = buscar_aluno_por_email(request_data.email)
-        if not aluno:
-            raise HTTPException(status_code=404, detail="Aluno não encontrado")
+    # 1) localizar aluno e customer_id
+    aluno = buscar_aluno_por_email(request_data.email)
+    if not aluno:
+        raise HTTPException(status_code=404, detail="Aluno não encontrado")
+    cid = get_or_create_customer(aluno)
 
-        cid = get_or_create_customer(aluno)
+    # 2) buscar assinatura ativa
+    resp = requests.get(
+        f"{settings.ASAAS_BASE}/subscriptions",
+        headers=asaas_headers(),
+        params={"customer": cid, "status": "ACTIVE", "limit": 1},
+        timeout=10
+    )
+    resp.raise_for_status()
+    data = resp.json().get("data") or []
+    if not data:
+        raise HTTPException(status_code=404, detail="Assinatura ativa não encontrada")
+    sub_id = data[0]["id"]
 
-        # Buscar assinatura ativa
-        assinatura_r = requests.get(
-            f"{settings.ASAAS_BASE}/subscriptions",
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "FastAPIFlexgeZaia",
-                "access_token": settings.ASAAS_API_KEY
-            },
-            params={
-                "customer": cid,
-                "status": "ACTIVE",
-                "limit": 1
-            },
-            timeout=10
-        )
+    # 3) atualizar assinatura para CARTÃO e inclusive boletos pendentes
+    put_resp = requests.put(
+        f"{settings.ASAAS_BASE}/subscriptions/{sub_id}",
+        headers=asaas_headers(),
+        json={
+            "billingType": "CREDIT_CARD",
+            "updatePendingPayments": True,
+            "status": "ACTIVE"
+        },
+        timeout=10,
+    )
+    put_resp.raise_for_status()
+    updated = put_resp.json()
+    return {
+        "mensagem": "Assinatura e boletos pendentes atualizados para cartão com sucesso.",
+        "assinatura_id": sub_id,
+        "billingType": updated.get("billingType")
+    }
 
-        assinatura_r.raise_for_status()
-        assinatura_data = assinatura_r.json()
-
-        if not assinatura_data.get("data"):
-            raise HTTPException(status_code=404, detail="Assinatura ativa não encontrada")
-
-        sub_id = assinatura_data["data"][0]["id"]
-
-        # Atualizar assinatura com novo billingType (cartão) e atualizar boletos pendentes
-        put_r = requests.put(
-            f"{settings.ASAAS_BASE}/subscriptions/{sub_id}",
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "FastAPIFlexgeZaia",
-                "access_token": settings.ASAAS_API_KEY
-            },
-            json={
-                "billingType": "CREDIT_CARD",
-                "updatePendingPayments": True,
-                "status": "ACTIVE",
-                "nextDueDate": datetime.date.today().isoformat()
-            },
-            timeout=10
-        )
-
-        put_r.raise_for_status()
-        response_data = put_r.json()
-
-        return {
-            "mensagem": "Assinatura atualizada para cartão com sucesso.",
-            "assinatura_id": sub_id,
-            "proxima_cobranca": response_data.get("nextDueDate"),
-            "tipo_pagamento": response_data.get("billingType")
-        }
-
-    except requests.exceptions.HTTPError as e:
-        print(f"[ERRO HTTP] {e}")
-        raise HTTPException(status_code=500, detail=f"Erro HTTP: {str(e)}")
-    except Exception as e:
-        print(f"[ERRO GERAL] {e}")
-        raise HTTPException(status_code=500, detail=f"Erro inesperado: {str(e)}")
     
 @app.post("/trocar-assinatura-boleto")
 async def trocar_assinatura_boleto(request_data: EmailRequest):
