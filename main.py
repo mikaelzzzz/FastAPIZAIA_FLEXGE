@@ -546,22 +546,6 @@ async def zaia_reenviar_boleto(payload: EmailRequest):
         print(f"[ERRO GERAL] {e}")
         return {"erro": f"Erro inesperado: {str(e)}"}
 
-try:
-    r = requests.post(
-        f"{settings.ASAAS_BASE}/subscriptions/{sub_id}/changeBillingType",
-        params={"access_token": settings.ASAAS_API_KEY},
-        json={"billingType": "CREDIT_CARD"},
-        timeout=10
-    )
-    r.raise_for_status()
-except requests.exceptions.HTTPError as e:
-    if r.status_code == 404:
-        raise HTTPException(
-            status_code=404,
-            detail="Assinatura não encontrada no Asaas. Verifique se ela foi criada corretamente."
-        )
-    raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/trocar-assinatura-cartao")
 async def trocar_assinatura_cartao(request_data: EmailRequest):
     try:
