@@ -549,20 +549,39 @@ async def zaia_reenviar_boleto(payload: EmailRequest):
 @app.post("/trocar-assinatura-cartao")
 async def trocar_assinatura_cartao(request_data: EmailRequest):
     try:
-        aluno = buscar_aluno_por_email(request_data.email)
-        if not aluno:
-            raise HTTPException(status_code=404, detail="Aluno não encontrado")
+        email = request_data.email.lower().strip()
+        print(f"🔍 Buscando cliente no Asaas por email: {email}")
 
-        cid = get_or_create_customer(aluno)
+        # 1. Buscar cliente Asaas por e-mail
+        response = requests.get(
+            f"{settings.ASAAS_BASE}/customers",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "FastAPIFlexgeZaia",
+                "access_token": settings.ASAAS_API_KEY,
+            },
+            params={"email": email},
+            timeout=10
+        )
+        response.raise_for_status()
+        clientes = response.json().get("data", [])
 
+        if not clientes:
+            raise HTTPException(status_code=404, detail="Cliente não encontrado no Asaas")
+
+        cid = clientes[0]["id"]
+
+        # 2. Buscar assinatura ativa
         sub_r = requests.get(
             f"{settings.ASAAS_BASE}/subscriptions",
-            params={
-                "customer": cid,
-                "status": "ACTIVE",
-                "limit": 1,
-                "access_token": settings.ASAAS_API_KEY
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "FastAPIFlexgeZaia",
+                "access_token": settings.ASAAS_API_KEY,
             },
+            params={"customer": cid, "status": "ACTIVE"},
             timeout=10
         ).json()
 
@@ -571,16 +590,27 @@ async def trocar_assinatura_cartao(request_data: EmailRequest):
 
         sub_id = sub_r["data"][0]["id"]
 
+        # 3. Trocar forma de pagamento para cartão
         r = requests.post(
             f"{settings.ASAAS_BASE}/subscriptions/{sub_id}/changeBillingType",
-            params={"access_token": settings.ASAAS_API_KEY},
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "FastAPIFlexgeZaia",
+                "access_token": settings.ASAAS_API_KEY,
+            },
             json={"billingType": "CREDIT_CARD"},
             timeout=10
         )
         r.raise_for_status()
+
         return {"cartao_link": r.json()["invoiceUrl"]}
-    
+
+    except requests.exceptions.RequestException as e:
+        print(f"[ERRO HTTP] {e}")
+        raise HTTPException(status_code=500, detail="Erro ao comunicar com o Asaas")
     except Exception as e:
+        print(f"[ERRO GERAL] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
